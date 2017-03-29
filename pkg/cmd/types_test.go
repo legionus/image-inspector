@@ -37,18 +37,18 @@ func TestValidate(t *testing.T) {
 
 	goodScanOptions := NewDefaultImageInspectorOptions()
 	goodScanOptions.Image = "image"
-	goodScanOptions.ScanType = "openscap"
+	goodScanOptions.ScanType.Set("openscap")
 	goodScanOptions.ScanResultsDir = "."
 	goodScanOptions.OpenScapHTML = true
 
 	notADirResScan := NewDefaultImageInspectorOptions()
 	notADirResScan.Image = "image"
-	notADirResScan.ScanType = "openscap"
+	notADirResScan.ScanType.Set("openscap")
 	notADirResScan.ScanResultsDir = "types_test.go"
 
 	noSuchScanType := NewDefaultImageInspectorOptions()
 	noSuchScanType.Image = "image"
-	noSuchScanType.ScanType = "nosuchscantype"
+	noSuchScanType.ScanType.Set("nosuchscantype")
 	noSuchScanType.ScanResultsDir = "."
 
 	noSuchFileDockercfg := NewDefaultImageInspectorOptions()
@@ -62,7 +62,7 @@ func TestValidate(t *testing.T) {
 	badScanOptionsHTMLWrongScan := NewDefaultImageInspectorOptions()
 	badScanOptionsHTMLWrongScan.Image = "image"
 	badScanOptionsHTMLWrongScan.OpenScapHTML = true
-	badScanOptionsHTMLWrongScan.ScanType = "nosuchscantype"
+	badScanOptionsHTMLWrongScan.ScanType("nosuchscantype")
 
 	tests := map[string]struct {
 		inspector      *ImageInspectorOptions

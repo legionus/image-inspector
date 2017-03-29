@@ -7,10 +7,10 @@ ENV PKGPATH=/go/src/github.com/openshift/image-inspector
 
 WORKDIR $PKGPATH
 
-ADD .   $PKGPATH
 ENV GOBIN  /usr/bin
 ENV GOPATH /go:$PKGPATH/Godeps/_workspace
 
+ADD .   $PKGPATH
 RUN go install $PKGPATH/cmd/image-inspector.go && \
     mkdir -p /var/lib/image-inspector
 

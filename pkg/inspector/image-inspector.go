@@ -91,7 +91,7 @@ func (i *defaultImageInspector) Inspect() error {
 
 	var scanReport []byte
 	var htmlScanReport []byte
-	if i.opts.ScanType == "openscap" {
+	if i.opts.ScanType.HasValue("openscap") {
 		if i.opts.ScanResultsDir, err = createOutputDir(i.opts.ScanResultsDir, "image-inspector-scan-results-"); err != nil {
 			return err
 		}
@@ -118,8 +118,6 @@ func (i *defaultImageInspector) Inspect() error {
 			log.Printf("information of the hosting system.")
 		}
 
-		log.Printf("Serving image content %s on webdav://%s%s", i.opts.DstPath, i.opts.Serve, CONTENT_URL_PREFIX)
-
 		http.HandleFunc(HEALTHZ_URL_PATH, func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("ok\n"))
 		})
@@ -143,7 +141,7 @@ func (i *defaultImageInspector) Inspect() error {
 		})
 
 		http.HandleFunc(OPENSCAP_URL_PATH, func(w http.ResponseWriter, r *http.Request) {
-			if i.opts.ScanType == "openscap" && i.meta.OpenSCAP.Status == StatusSuccess {
+			if i.opts.ScanType.HasValue("openscap") && i.meta.OpenSCAP.Status == StatusSuccess {
 				w.Write(scanReport)
 			} else {
 				if i.meta.OpenSCAP.Status == StatusError {
@@ -156,7 +154,7 @@ func (i *defaultImageInspector) Inspect() error {
 		})
 
 		http.HandleFunc(OPENSCAP_REPORT_URL_PATH, func(w http.ResponseWriter, r *http.Request) {
-			if i.opts.ScanType == "openscap" && i.meta.OpenSCAP.Status == StatusSuccess && i.opts.OpenScapHTML {
+			if i.opts.ScanType.HasValue("openscap") && i.meta.OpenSCAP.Status == StatusSuccess && i.opts.OpenScapHTML {
 				w.Write(htmlScanReport)
 			} else {
 				if i.meta.OpenSCAP.Status == StatusError {
@@ -168,11 +166,15 @@ func (i *defaultImageInspector) Inspect() error {
 			}
 		})
 
-		http.Handle(CONTENT_URL_PREFIX, &webdav.Handler{
-			Prefix:     CONTENT_URL_PREFIX,
-			FileSystem: webdav.Dir(servePath),
-			LockSystem: webdav.NewMemLS(),
-		})
+		if i.opts.Webdav {
+			log.Printf("Serving image content %s on webdav://%s%s", i.opts.DstPath, i.opts.Serve, CONTENT_URL_PREFIX)
+
+			http.Handle(CONTENT_URL_PREFIX, &webdav.Handler{
+				Prefix:     CONTENT_URL_PREFIX,
+				FileSystem: webdav.Dir(servePath),
+				LockSystem: webdav.NewMemLS(),
+			})
+		}
 
 		return http.ListenAndServe(i.opts.Serve, nil)
 	}
