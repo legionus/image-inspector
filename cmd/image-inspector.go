@@ -50,6 +50,13 @@ func main() {
 			}
 		}
 
+		for _, scannerName := range iicmd.ScanOptions {
+			if scannerName == "openscap" || !inspectorOptions.ScanType.HasValue(scannerName) {
+				continue
+			}
+			ii.RunScanner(*inspectorOptions, scannerName, ii.ScannerImage)
+		}
+
 		if len(inspectorOptions.Serve) > 0 {
 			if err := ii.Serve(*inspectorOptions, meta); err != nil {
 				log.Fatalf("Image Inspector service failed: %v", err)
