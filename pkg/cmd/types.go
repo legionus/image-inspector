@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"io/ioutil"
+	"os"
+
 	"github.com/ghodss/yaml"
 	oscapscanner "github.com/openshift/image-inspector/pkg/openscap"
-	"os"
 )
 
 var (
@@ -147,13 +149,10 @@ func (i *ImageInspectorOptions) Validate() error {
 		}
 	}
 	if len(i.CustomScanConf) != 0 {
-		// FIXME: make this come from the file instead of having it hard-coded here
-		data := []byte(`
-- name: occlamdscan
-  imagescan: ['occlamdscan', '--image']
-  containerscan: ['occlamdscan', '--container']
-  volumescan: ['occlamdscan', '--volume']
-`)
+		data, err := ioutil.ReadFile(i.CustomScanConf)
+		if err != nil {
+			return err
+		}
 		if err := yaml.Unmarshal(data, &i.CustomScans); err != nil {
 			return fmt.Errorf("Failed to parse scan option file %s already specified", i.CustomScanConf)
 		}

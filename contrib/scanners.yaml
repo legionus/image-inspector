@@ -1,0 +1,4 @@
+- name: occlamdscan
+  imagescan: ['occlamdscan', '--image']
+  containerscan: ['occlamdscan', '--container']
+  volumescan: ['occlamdscan', '--volume']
