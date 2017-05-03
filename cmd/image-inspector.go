@@ -35,8 +35,29 @@ func main() {
 		log.Fatal(err)
 	}
 
-	inspector := ii.NewDefaultImageInspector(*inspectorOptions)
-	if err := inspector.Inspect(); err != nil {
-		log.Fatalf("Error inspecting image: %v", err)
+	if len(inspectorOptions.Image) > 0 {
+		receiver := ii.NewImageReceiver(*inspectorOptions)
+
+		meta, err := receiver.ExtractImage()
+		if err != nil {
+			log.Fatalf("Unable to extract image: %v", err)
+		}
+
+		if inspectorOptions.ScanType.HasValue("openscap") {
+			openscapInspector := ii.NewOpenscapImageInspector(*inspectorOptions, meta)
+			if err := openscapInspector.Inspect(); err != nil {
+				log.Fatalf("Error inspecting image: %v", err)
+			}
+		}
+
+		if len(inspectorOptions.Serve) > 0 {
+			if err := ii.Serve(*inspectorOptions, meta); err != nil {
+				log.Fatalf("Image Inspector service failed: %v", err)
+			}
+		}
+	} else if len(inspectorOptions.Volume) > 0 {
+		log.Println("Scanning volume")
+	} else {
+		log.Println("Nothing to do!")
 	}
 }
