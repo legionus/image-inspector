@@ -18,8 +18,11 @@ import (
 	"archive/tar"
 	"crypto/rand"
 
+	"github.com/containerd/containerd/mount"
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/openshift/image-inspector/pkg/openscap"
+	"golang.org/x/net/context"
+	"golang.org/x/sys/unix"
 
 	iicmd "github.com/openshift/image-inspector/pkg/cmd"
 
@@ -60,6 +63,97 @@ type defaultImageInspector struct {
 	meta iiapi.InspectorMetadata
 	// an optional image server that will server content for inspection.
 	imageServer apiserver.ImageServer
+}
+
+type mountInfo struct {
+	Source string
+	Target string
+	FStype string
+	Opts   []string
+}
+
+func parseMountOpts(args string) []string {
+	var res []string
+	var arg string
+
+	quota := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case '"':
+			quota = !quota
+		case ',':
+			if !quota {
+				if len(arg) > 0 {
+					res = append(res, arg)
+					arg = ""
+				}
+				continue
+			}
+		}
+		arg += string(args[i])
+	}
+
+	if len(arg) > 0 {
+		res = append(res, arg)
+	}
+
+	if len(res) == 0 {
+		res = append(res, args)
+	}
+
+	return res
+}
+
+func getContainerRootInfo(meta *docker.Container) (*mount.Mount, error) {
+	mi, err := mount.PID(meta.State.Pid)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m := range mi {
+		if m.Mountpoint != "/" {
+			continue
+		}
+
+		info := &mount.Mount{
+			Source:  m.Source,
+			Type:    m.FSType,
+			Options: parseMountOpts(m.Options + "," + m.VFSOptions + ",ro"),
+		}
+
+		return info, nil
+	}
+
+	return nil, fmt.Errorf("root filesystem not found")
+}
+
+func listenContainerTermination(client *docker.Client, containerID string, cancel context.CancelFunc) error {
+	listener := make(chan *docker.APIEvents, 1024)
+
+	if err := client.AddEventListener(listener); err != nil {
+		return err
+	}
+
+	go func() {
+		defer func() {
+			if err := client.RemoveEventListener(listener); err != nil {
+				log.Printf("RemoveEventListener failed: %s", err)
+			}
+		}()
+
+		for {
+			select {
+			case msg := <-listener:
+				if msg.Action == "die" && msg.Type == "container" && msg.Actor.ID == containerID {
+					log.Printf("Container %q is terminated", containerID)
+					cancel()
+					break
+				}
+			}
+		}
+	}()
+
+	return nil
 }
 
 // NewInspectorMetadata returns a new InspectorMetadata out of *docker.Image
@@ -123,36 +217,84 @@ func (i *defaultImageInspector) Inspect() error {
 		return fmt.Errorf("Unable to connect to docker daemon: %v\n", err)
 	}
 
-	imageMetaBefore, inspectErrBefore := client.InspectImage(i.opts.Image)
-	if i.opts.PullPolicy == iiapi.PullNever && inspectErrBefore != nil {
-		return fmt.Errorf("Image %s is not available and pull-policy %s doesn't allow pulling",
-			i.opts.Image, i.opts.PullPolicy)
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	if i.opts.PullPolicy == iiapi.PullAlways ||
-		(i.opts.PullPolicy == iiapi.PullIfNotPresent && inspectErrBefore != nil) {
-		if err = i.pullImage(client); err != nil {
+	if len(i.opts.Container) == 0 {
+		imageMetaBefore, inspectErrBefore := client.InspectImage(i.opts.Image)
+		if i.opts.PullPolicy == iiapi.PullNever && inspectErrBefore != nil {
+			return fmt.Errorf("Image %s is not available and pull-policy %s doesn't allow pulling",
+				i.opts.Image, i.opts.PullPolicy)
+		}
+
+		if i.opts.PullPolicy == iiapi.PullAlways ||
+			(i.opts.PullPolicy == iiapi.PullIfNotPresent && inspectErrBefore != nil) {
+			if err = i.pullImage(client); err != nil {
+				return err
+			}
+		}
+
+		imageMetaAfter, inspectErrAfter := client.InspectImage(i.opts.Image)
+		if inspectErrBefore == nil && inspectErrAfter == nil &&
+			imageMetaBefore.ID == imageMetaAfter.ID {
+			log.Printf("Image %s was already available", i.opts.Image)
+		}
+
+		if i.opts.PullPolicy == iiapi.PullAlways ||
+			(i.opts.PullPolicy == iiapi.PullIfNotPresent && inspectErrBefore != nil) {
+			if err = i.pullImage(client); err != nil {
+				return err
+			}
+		}
+
+		randomName, err := generateRandomName()
+		if err != nil {
 			return err
 		}
-	}
 
-	imageMetaAfter, inspectErrAfter := client.InspectImage(i.opts.Image)
-	if inspectErrBefore == nil && inspectErrAfter == nil &&
-		imageMetaBefore.ID == imageMetaAfter.ID {
-		log.Printf("Image %s was already available", i.opts.Image)
-	}
+		imageMetadata, err := i.createAndExtractImage(client, randomName)
+		if err != nil {
+			return err
+		}
 
-	randomName, err := generateRandomName()
-	if err != nil {
-		return err
-	}
+		i.meta.Image = *imageMetadata
+		scanResults.ImageID = i.meta.Image.ID
 
-	imageMetadata, err := i.createAndExtractImage(client, randomName)
-	if err != nil {
-		return err
+	} else {
+		if i.opts.DstPath, err = createOutputDir(i.opts.DstPath, "image-inspector-"); err != nil {
+			return err
+		}
+		defer os.RemoveAll(i.opts.DstPath)
+
+		containerMetadata, err := client.InspectContainer(i.opts.Container)
+		if err != nil {
+			return fmt.Errorf("Unable to get docker container information: %v", err)
+		}
+
+		imageMetadata, err := client.InspectImage(containerMetadata.Image)
+		if err != nil {
+			return fmt.Errorf("Unable to get docker image information: %v", err)
+		}
+
+		i.meta.Image = *imageMetadata
+		scanResults.ContainerID = containerMetadata.ID
+
+		mi, err := getContainerRootInfo(containerMetadata)
+		if err != nil {
+			return err
+		}
+
+		if err := listenContainerTermination(client, containerMetadata.ID, cancel); err != nil {
+			return err
+		}
+
+		log.Printf("Mounting container root filesystem to %s", i.opts.DstPath)
+
+		if err := mi.Mount(i.opts.DstPath); err != nil {
+			return err
+		}
+		defer mount.Unmount(i.opts.DstPath, unix.MNT_FORCE|unix.MNT_DETACH)
 	}
-	i.meta.Image = *imageMetadata
-	scanResults.ImageID = i.meta.Image.ID
 
 	switch i.opts.ScanType {
 	case "openscap":
@@ -164,7 +306,7 @@ func (i *defaultImageInspector) Inspect() error {
 			reportObj interface{}
 		)
 		scanner = openscap.NewDefaultScanner(OSCAP_CVE_DIR, i.opts.ScanResultsDir, i.opts.CVEUrlPath, i.opts.OpenScapHTML)
-		results, reportObj, err = scanner.Scan(i.opts.DstPath, &i.meta.Image)
+		results, reportObj, err = scanner.ScanCancelable(ctx, i.opts.DstPath, &i.meta.Image)
 		if err != nil {
 			i.meta.OpenSCAP.SetError(err)
 			log.Printf("DEBUG: Unable to scan image %q with OpenSCAP: %v", i.opts.Image, err)
@@ -181,7 +323,7 @@ func (i *defaultImageInspector) Inspect() error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize clamav scanner: %v", err)
 		}
-		results, _, err := scanner.Scan(i.opts.DstPath, &i.meta.Image)
+		results, _, err := scanner.ScanCancelable(ctx, i.opts.DstPath, &i.meta.Image)
 		if err != nil {
 			log.Printf("DEBUG: Unable to scan image %q with ClamAV: %v", i.opts.Image, err)
 			return err

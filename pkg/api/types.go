@@ -4,6 +4,7 @@ import (
 	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
+	"golang.org/x/net/context"
 )
 
 // OpenSCAPStatus is the status of openscap scan
@@ -32,8 +33,9 @@ type ScanResult struct {
 	ImageName string `json:"imageName"`
 	// ImageIUD is a SHA256 identifier of the scanned image
 	// Note that we don't set the imageID when container is the target of the scan.
-	// FIXME: We should add ContainerID here in that case.
 	ImageID string `json:"imageID,omitempty"`
+	// ContainerID contains the docker container to inspect.
+	ContainerID string
 	// Results contains compacted results of various scans performed on the image.
 	// Empty results means no problems were found with the given image.
 	Results []Result `json:"results,omitempty"`
@@ -108,6 +110,10 @@ type Scanner interface {
 	// It should return compacted results for JSON serialization and additionally scanner
 	// specific results with more details.
 	Scan(path string, image *docker.Image) ([]Result, interface{}, error)
+
+	// ScanCancelable returns same result as Scan, but the context object can be used
+	// to cancel the scanning process.
+	ScanCancelable(ctx context.Context, path string, image *docker.Image) ([]Result, interface{}, error)
 
 	// Name is the scanner's name
 	Name() string
