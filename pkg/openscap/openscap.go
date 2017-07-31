@@ -191,7 +191,7 @@ func (s *defaultOSCAPScanner) oscapChroot(ctx context.Context, oscapArgs ...stri
 	return out, err
 }
 
-func (s *defaultOSCAPScanner) ScanCancelable(ctx context.Context, mountPath string, image *docker.Image) ([]iiapi.Result, interface{}, error) {
+func (s *defaultOSCAPScanner) ScanCancelable(ctx context.Context, mountPath string, image *docker.Image, filter iiapi.FilesFilter) ([]iiapi.Result, interface{}, error) {
 	fi, err := os.Stat(mountPath)
 	if err != nil || os.IsNotExist(err) || !fi.IsDir() {
 		return nil, nil, fmt.Errorf("%s is not a directory, error: %v", mountPath, err)
@@ -239,8 +239,8 @@ func (s *defaultOSCAPScanner) ScanCancelable(ctx context.Context, mountPath stri
 	return ParseResults(s.reports.ArfBytes), s.reports, nil
 }
 
-func (s *defaultOSCAPScanner) Scan(mountPath string, image *docker.Image) ([]iiapi.Result, interface{}, error) {
-	return s.ScanCancelable(context.Background(), mountPath, image)
+func (s *defaultOSCAPScanner) Scan(mountPath string, image *docker.Image, filter iiapi.FilesFilter) ([]iiapi.Result, interface{}, error) {
+	return s.ScanCancelable(context.Background(), mountPath, image, filter)
 }
 
 func (s *defaultOSCAPScanner) readOpenSCAPReports() ([]byte, []byte, error) {

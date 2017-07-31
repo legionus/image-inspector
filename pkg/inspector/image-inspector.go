@@ -204,6 +204,7 @@ func (i *defaultImageInspector) Inspect() error {
 		err     error
 
 		scanReport, htmlScanReport []byte
+		filter iiapi.FilesFilter
 	)
 
 	scanResults := iiapi.ScanResult{
@@ -294,6 +295,32 @@ func (i *defaultImageInspector) Inspect() error {
 			return err
 		}
 		defer mount.Unmount(i.opts.DstPath, unix.MNT_FORCE|unix.MNT_DETACH)
+
+		if i.opts.ScanContainerChanges {
+			rootPath := i.opts.DstPath
+
+			// In some docker drivers rootfs subdirectory is introduced to comply with the OCI spec.
+			if stat, err := os.Stat(i.opts.DstPath + "/rootfs"); err == nil {
+				if stat.IsDir() {
+					rootPath += "/rootfs"
+				}
+			}
+
+			containerChanges, err := client.ContainerChanges(i.opts.Container)
+			if err != nil {
+				return fmt.Errorf("Unable to get docker container changes: %v", err)
+			}
+
+			// We don't want to scan anything if the containerChanges is empty.
+			filter = make(iiapi.FilesFilter)
+
+			for _, change := range containerChanges {
+				switch change.Kind {
+				case docker.ChangeAdd, docker.ChangeModify:
+					filter[rootPath + change.Path] = struct{}{}
+				}
+			}
+		}
 	}
 
 	switch i.opts.ScanType {
@@ -306,7 +333,7 @@ func (i *defaultImageInspector) Inspect() error {
 			reportObj interface{}
 		)
 		scanner = openscap.NewDefaultScanner(OSCAP_CVE_DIR, i.opts.ScanResultsDir, i.opts.CVEUrlPath, i.opts.OpenScapHTML)
-		results, reportObj, err = scanner.ScanCancelable(ctx, i.opts.DstPath, &i.meta.Image)
+		results, reportObj, err = scanner.ScanCancelable(ctx, i.opts.DstPath, &i.meta.Image, filter)
 		if err != nil {
 			i.meta.OpenSCAP.SetError(err)
 			log.Printf("DEBUG: Unable to scan image %q with OpenSCAP: %v", i.opts.Image, err)
@@ -323,7 +350,7 @@ func (i *defaultImageInspector) Inspect() error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize clamav scanner: %v", err)
 		}
-		results, _, err := scanner.ScanCancelable(ctx, i.opts.DstPath, &i.meta.Image)
+		results, _, err := scanner.ScanCancelable(ctx, i.opts.DstPath, &i.meta.Image, filter)
 		if err != nil {
 			log.Printf("DEBUG: Unable to scan image %q with ClamAV: %v", i.opts.Image, err)
 			return err

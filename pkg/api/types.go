@@ -104,16 +104,18 @@ type APIVersions struct {
 	Versions []string `json:"versions"`
 }
 
+type FilesFilter map[string]struct{}
+
 // Scanner interface that all scanners should define.
 type Scanner interface {
 	// Scan will perform a scan on the given path for the given Image.
 	// It should return compacted results for JSON serialization and additionally scanner
 	// specific results with more details.
-	Scan(path string, image *docker.Image) ([]Result, interface{}, error)
+	Scan(path string, image *docker.Image, filter FilesFilter) ([]Result, interface{}, error)
 
 	// ScanCancelable returns same result as Scan, but the context object can be used
 	// to cancel the scanning process.
-	ScanCancelable(ctx context.Context, path string, image *docker.Image) ([]Result, interface{}, error)
+	ScanCancelable(ctx context.Context, path string, image *docker.Image, filter FilesFilter) ([]Result, interface{}, error)
 
 	// Name is the scanner's name
 	Name() string

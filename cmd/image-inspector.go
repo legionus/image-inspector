@@ -18,6 +18,7 @@ func main() {
 	flag.StringVar(&inspectorOptions.URI, "docker", inspectorOptions.URI, "Daemon socket to connect to")
 	flag.StringVar(&inspectorOptions.Image, "image", inspectorOptions.Image, "Docker image to inspect (cannot be used with the container option)")
 	flag.StringVar(&inspectorOptions.Container, "container", inspectorOptions.Container, "Docker container to inspect (cannot be used with the image option)")
+	flag.BoolVar(&inspectorOptions.ScanContainerChanges, "container-changes", inspectorOptions.ScanContainerChanges, "Scan only changed files inside running container")
 	flag.StringVar(&inspectorOptions.DstPath, "path", inspectorOptions.DstPath, "Destination path for the image files")
 	flag.StringVar(&inspectorOptions.Serve, "serve", inspectorOptions.Serve, "Host and port where to serve the image with webdav")
 	flag.BoolVar(&inspectorOptions.Chroot, "chroot", inspectorOptions.Chroot, "Change root when serving the image with webdav")
